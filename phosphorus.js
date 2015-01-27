@@ -2085,6 +2085,12 @@ P.compile = (function() {
     'whenSensorGreaterThan' // TODO
   ];
 
+  var inlineLookups = {
+    'substr': function(S, params) {
+      S.vars['substr.return'] = params[0].substr(params[1] - 1, params[2] - params[1]);
+    }
+  };
+
   var compileScripts = function(object) {
     for (var i = 0; i < object.scripts.length; i++) {
       compileListener(object, object.scripts[i][2]);
@@ -3173,11 +3179,23 @@ P.compile = (function() {
       var key = script[0][1].toLowerCase();
       (object.listeners.whenSceneStarts[key] || (object.listeners.whenSceneStarts[key] = [])).push(f);
     } else if (script[0][0] === 'procDef') {
-      object.procedures[script[0][1]] = {
-        inputs: inputs,
-        warp: script[0][4],
-        fn: f
-      };
+      // if this is an inline stub, we do something completely different
+      if(script.length > 1
+        && script[1][0] == 'call'
+        && script[1][1] == 'native phosphorous inline %s') {
+
+        object.procedures[script[0][1]] = {
+          inline: true,
+          inlineCode: inlineLookups[script[1][2]]
+        };
+      } else {
+        object.procedures[script[0][1]] = {
+          inline: false,
+          inputs: inputs,
+          warp: script[0][4],
+          fn: f
+        };
+      }
     } else {
       warn('Undefined event: ' + script[0][0]);
     }
@@ -3590,6 +3608,13 @@ P.runtime = (function() {
     if (procedure) {
       STACK.push(R);
       CALLS.push(C);
+      
+      if(procedure.inline) {
+        procedure.inlineCode(S, values);
+        IMMEDIATE = S.fns[id];
+        return;
+      }
+
       C = {
         base: procedure.fn,
         fn: S.fns[id],
